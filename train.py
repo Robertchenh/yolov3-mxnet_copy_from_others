@@ -169,6 +169,7 @@ if __name__ == '__main__':
     negative_weight = 1.0
 
     l2_loss = L2Loss(weight=2.)
+    SigmoidBinaryCrossEntropyLoss = SigmoidBinaryCrossEntropyLoss(from_sigmoid=True, weight=None, batch_axis=0)
 
     net = DarkNet(num_classes=num_classes, input_dim=input_dim)
     net.initialize(init=mx.init.Xavier(), ctx=ctx)
@@ -255,16 +256,35 @@ if __name__ == '__main__':
                         #
                         # loss = t_loss_xywh + t_loss_conf + t_loss_cls
 
-                        loss_xy = l2_loss(pred_xywh[:, :, :2], true_box[:, :, :2],
-                                            coordinate_weight * box_loss_scale)
+                        #my loss
+                        # loss_xy = l2_loss(pred_xywh[:, :, :2], true_box[:, :, :2],
+                        #                     coordinate_weight * box_loss_scale)
+                        #
+                        # loss_wh = l2_loss(pred_xywh[:, :, 2:4], true_box[:, :, 2:4],
+                        #                     coordinate_weight * box_loss_scale)
+                        #
+                        # loss_conf = l2_loss(pred_score, true_score, coordinate_weight) + \
+                        #             l2_loss(pred_score, true_score, (1 - coordinate_weight) * ignore_mask_noobj)
+                        #
+                        # loss_cls = l2_loss(pred_cls, true_cls, coordinate_weight)
 
+                        # loss_xy = l2_loss(pred_xywh[:, :, :2], true_box[:, :, :2],
+                        #                     coordinate_weight * box_loss_scale)
+
+
+
+
+                        loss_xy = SigmoidBinaryCrossEntropyLoss(pred_xywh[:, :, :2], true_box[:, :, :2], coordinate_weight * box_loss_scale)
                         loss_wh = l2_loss(pred_xywh[:, :, 2:4], true_box[:, :, 2:4],
-                                            coordinate_weight * box_loss_scale)
+                                          coordinate_weight * box_loss_scale)
 
-                        loss_conf = l2_loss(pred_score, true_score, coordinate_weight) + \
-                                    l2_loss(pred_score, true_score, (1 - coordinate_weight) * ignore_mask_noobj)
+                        loss_conf = SigmoidBinaryCrossEntropyLoss(pred_score, true_score, coordinate_weight) + \
+                                    SigmoidBinaryCrossEntropyLoss(pred_score, true_score, (1 - coordinate_weight) * ignore_mask_noobj)
 
-                        loss_cls = l2_loss(pred_cls, true_cls, coordinate_weight)
+                        loss_cls = SigmoidBinaryCrossEntropyLoss(pred_cls, true_cls, coordinate_weight)
+
+
+
 
                         t_loss_xywh = nd.sum(loss_xy + 0.5 * loss_wh) / mini_batch_size
 
