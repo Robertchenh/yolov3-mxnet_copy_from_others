@@ -65,6 +65,49 @@ def bbox_iou(box1, box2, transform=True):
     return nd.clip(iou, 1e-5, 1. - 1e-5)
 
 
+
+def box_iou(b1, b2):
+    '''Return iou tensor
+
+    Parameters
+    ----------
+    b1: tensor, shape=(i1,...,iN, 4), xywh
+    b2: tensor, shape=(j, 4), xywh
+
+    Returns
+    -------
+    iou: tensor, shape=(i1,...,iN, j)
+
+    '''
+
+    # Expand dim to apply broadcasting.
+    b1 = nd.expand_dims(b1, -2)
+    b1_xy = b1[:, :, :2]
+    b1_wh = b1[:, :, 2:4]
+    b1_wh_half = b1_wh/2.
+    b1_mins = b1_xy - b1_wh_half
+    b1_maxes = b1_xy + b1_wh_half
+
+    # Expand dim to apply broadcasting.
+    b2 = nd.expand_dims(b2, 0)
+    b2_xy = b2[:, :, :2]
+    b2_wh = b2[:, :, 2:4]
+    b2_wh_half = b2_wh/2.
+    b2_mins = b2_xy - b2_wh_half
+    b2_maxes = b2_xy + b2_wh_half
+
+    intersect_mins = nd.maximum(b1_mins, b2_mins)
+    intersect_maxes = nd.minimum(b1_maxes, b2_maxes)
+    intersect_wh = nd.maximum(intersect_maxes - intersect_mins, 0.)
+    intersect_area = intersect_wh[:, :, 0] * intersect_wh[:, :, 1]
+    b1_area = b1_wh[:, :, 0] * b1_wh[:, :, 1]
+    b2_area = b2_wh[:, :, 0] * b2_wh[:, :, 1]
+    iou = intersect_area / (b1_area + b2_area - intersect_area)
+
+    return iou
+
+
+
 def predict_transform(prediction, input_dim, anchors):
     ctx = prediction.context
     if not isinstance(anchors, nd.NDArray):
@@ -194,6 +237,27 @@ def write_results(prediction, num_classes, confidence=0.5, nms_conf=0.4):
     return output
 
 
+# def letterbox_image(img, inp_dim, labels=None):
+#     img_w, img_h = img.shape[1], img.shape[0]
+#     w, h = inp_dim
+#     new_w = int(img_w * min(w / img_w, h / img_h))
+#     new_h = int(img_h * min(w / img_w, h / img_h))
+#     resized_image = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_CUBIC)
+#     if labels is not None:
+#         mask = labels > 0.
+#         labels[:, 1] = (labels[:, 1] * new_w + (w - new_w) // 2) / w
+#         labels[:, 2] = (labels[:, 2] * new_h + (h - new_h) // 2) / h
+#         labels[:, 3] = labels[:, 3] * new_w / w
+#         labels[:, 4] = labels[:, 4] * new_h / h
+#         labels *= mask
+#     canvas = np.full((inp_dim[1], inp_dim[0], 3), 128, dtype=np.uint8)
+#
+#     canvas[(h - new_h) // 2:(h - new_h) // 2 + new_h, (w - new_w) // 2:(w - new_w) // 2 + new_w, :] = resized_image
+#
+#     return canvas, labels
+
+
+
 def letterbox_image(img, inp_dim, labels=None):
     img_w, img_h = img.shape[1], img.shape[0]
     w, h = inp_dim
@@ -202,16 +266,18 @@ def letterbox_image(img, inp_dim, labels=None):
     resized_image = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_CUBIC)
     if labels is not None:
         mask = labels > 0.
-        labels[:, 1] = (labels[:, 1] * new_w + (w - new_w) // 2) / w
-        labels[:, 2] = (labels[:, 2] * new_h + (h - new_h) // 2) / h
-        labels[:, 3] = labels[:, 3] * new_w / w
-        labels[:, 4] = labels[:, 4] * new_h / h
+        labels[:, 0] = (labels[:, 0] * new_w + (w - new_w) // 2) / w
+        labels[:, 1] = (labels[:, 1] * new_h + (h - new_h) // 2) / h
+        labels[:, 2] = labels[:, 2] * new_w / w
+        labels[:, 3] = labels[:, 3] * new_h / h
         labels *= mask
     canvas = np.full((inp_dim[1], inp_dim[0], 3), 128, dtype=np.uint8)
 
     canvas[(h - new_h) // 2:(h - new_h) // 2 + new_h, (w - new_w) // 2:(w - new_w) // 2 + new_w, :] = resized_image
 
     return canvas, labels
+
+
 
 
 def prep_image(img, inp_dim, labels=None):

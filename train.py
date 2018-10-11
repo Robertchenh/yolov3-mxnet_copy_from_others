@@ -9,19 +9,37 @@ from utils import *
 
 
 def arg_parse():
+    # parser = argparse.ArgumentParser(description="YOLO v3 Detection Module")
+    # parser.add_argument("--images", dest='images_path', type=str)
+    # parser.add_argument("--train", dest='train_data_path', default="data/train.txt", type=str)
+    # parser.add_argument("--val", dest='val_data_path', type=str)
+    # parser.add_argument("--coco_train", dest="coco_train", type=str)
+    # parser.add_argument("--coco_val", dest="coco_val", type=str)
+    # parser.add_argument("--lr", dest="lr", help="learning rate", default=1e-3, type=float)
+    # parser.add_argument("--classes", dest="classes", default="data/coco.names", type=str)
+    # parser.add_argument("--prefix", dest="prefix", default="voc")
+    # parser.add_argument("--gpu", dest="gpu", help="gpu id", default=0, type=str)
+    # parser.add_argument("--dst_dir", dest='dst_dir', default="results", type=str)
+    # parser.add_argument("--epoch", dest="epoch", default=300, type=int)
+    # parser.add_argument("--batch_size", dest="batch_size", help="Batch size", default=16, type=int)
+    # parser.add_argument("--ignore_thresh", dest="ignore_thresh", default=0.5)
+    # parser.add_argument("--params", dest='params', help=
+    # "mxnet params file", default="data/yolov3.weights", type=str)
+    # parser.add_argument("--input_dim", dest='input_dim', default=416, type=int)
+
     parser = argparse.ArgumentParser(description="YOLO v3 Detection Module")
     parser.add_argument("--images", dest='images_path', type=str)
-    parser.add_argument("--train", dest='train_data_path', default="data/train.txt", type=str)
-    parser.add_argument("--val", dest='val_data_path', type=str)
+    parser.add_argument("--train", dest='train_data_path', default="image_data/2012_train.txt", type=str)
+    parser.add_argument("--val", dest='val_data_path', default="image_data/2012_val.txt", type=str)
     parser.add_argument("--coco_train", dest="coco_train", type=str)
     parser.add_argument("--coco_val", dest="coco_val", type=str)
     parser.add_argument("--lr", dest="lr", help="learning rate", default=1e-3, type=float)
-    parser.add_argument("--classes", dest="classes", default="data/coco.names", type=str)
+    parser.add_argument("--classes", dest="classes", default="data/voc.names", type=str)
     parser.add_argument("--prefix", dest="prefix", default="voc")
-    parser.add_argument("--gpu", dest="gpu", help="gpu id", default=0, type=str)
+    parser.add_argument("--gpu", dest="gpu", help="gpu id", default="0", type=str)
     parser.add_argument("--dst_dir", dest='dst_dir', default="results", type=str)
     parser.add_argument("--epoch", dest="epoch", default=300, type=int)
-    parser.add_argument("--batch_size", dest="batch_size", help="Batch size", default=16, type=int)
+    parser.add_argument("--batch_size", dest="batch_size", help="Batch size", default=10, type=int)
     parser.add_argument("--ignore_thresh", dest="ignore_thresh", default=0.5)
     parser.add_argument("--params", dest='params', help=
     "mxnet params file", default="data/yolov3.weights", type=str)
@@ -40,6 +58,30 @@ def calculate_ignore(prediction, true_xywhs, ignore_thresh):
         iou = bbox_iou(tmp_pred[x_box, y_box:y_box + 1, :4], true_xywhs[x_box, y_box:y_box + 1])
         ignore_mask[x_box, y_box] = (iou < ignore_thresh).astype("float32").reshape(-1)
     return ignore_mask
+
+
+
+
+def calculate_ignore_mask(prediction, true_xywhs, ignore_thresh):
+    ctx = prediction.context
+    tmp_pred = predict_transform(prediction, input_dim, anchors)
+    ignore_mask_noobj = nd.zeros(shape=pred_score.shape, dtype="float32", ctx=ctx)
+
+    for i in range(prediction.shape[0]):
+        item_index = np.argwhere(true_xywhs[i, :, 4].asnumpy() == 1.0)
+        id = []
+        for j in range(len(item_index)):
+            id.append(item_index[j][0])
+        true_xywh = true_xywhs[i, id]
+        true_xywh = true_xywh[:,:4]
+        pred_xywh = tmp_pred[i, :, :4]
+        iou = box_iou(pred_xywh, true_xywh)
+        iou_max = np.max(iou, 1)
+        iou_max_id = (iou_max < ignore_thresh).astype("float32").reshape(-1)
+        # iou_max = nd.expand_dims(iou_max, -1)
+        ignore_mask_noobj[i] = nd.expand_dims(iou_max_id, -1)
+
+    return ignore_mask_noobj
 
 
 class YoloDataSet(gluon.data.Dataset):
@@ -188,6 +230,7 @@ if __name__ == '__main__':
                         pred_cls = prediction[:, :, 5:]
                         with autograd.pause():
                             ignore_mask = calculate_ignore(prediction.copy(), gpu_z, args.ignore_thresh)
+                            ignore_mask_noobj = calculate_ignore_mask(prediction.copy(), gpu_z, args.ignore_thresh)
                             true_box = gpu_y[:, :, :4]
                             true_score = gpu_y[:, :, 4:5]
                             true_cls = gpu_y[:, :, 5:]
@@ -197,20 +240,41 @@ if __name__ == '__main__':
                                                     nd.ones_like(coordinate_weight) * negative_weight)
                             box_loss_scale = 2. - gpu_z[:, :, 2:3] * gpu_z[:, :, 3:4] / float(args.input_dim ** 2)
 
-                        loss_xywh = l2_loss(pred_xywh, true_box,
-                                           ignore_mask * coordinate_weight * box_loss_scale)
+                        # loss_xywh = l2_loss(pred_xywh, true_box,
+                        #                    ignore_mask * coordinate_weight * box_loss_scale)
+                        #
+                        # loss_conf = l2_loss(pred_score, true_score)
+                        #
+                        # loss_cls = l2_loss(pred_cls, true_cls, coordinate_weight)
+                        #
+                        # t_loss_xywh = nd.sum(loss_xywh) / mini_batch_size
+                        #
+                        # t_loss_conf = nd.sum(loss_conf) / mini_batch_size
+                        #
+                        # t_loss_cls = nd.sum(loss_cls) / mini_batch_size
+                        #
+                        # loss = t_loss_xywh + t_loss_conf + t_loss_cls
 
-                        loss_conf = l2_loss(pred_score, true_score)
+                        loss_xy = l2_loss(pred_xywh[:, :, :2], true_box[:, :, :2],
+                                            coordinate_weight * box_loss_scale)
+
+                        loss_wh = l2_loss(pred_xywh[:, :, 2:4], true_box[:, :, 2:4],
+                                            coordinate_weight * box_loss_scale)
+
+                        loss_conf = l2_loss(pred_score, true_score, coordinate_weight) + \
+                                    l2_loss(pred_score, true_score, (1 - coordinate_weight) * ignore_mask_noobj)
 
                         loss_cls = l2_loss(pred_cls, true_cls, coordinate_weight)
 
-                        t_loss_xywh = nd.sum(loss_xywh) / mini_batch_size
+                        t_loss_xywh = nd.sum(loss_xy + 0.5 * loss_wh) / mini_batch_size
 
                         t_loss_conf = nd.sum(loss_conf) / mini_batch_size
 
                         t_loss_cls = nd.sum(loss_cls) / mini_batch_size
 
                         loss = t_loss_xywh + t_loss_conf + t_loss_cls
+
+
                         batch_num += len(loss)
 
                         if mode == "train":
@@ -235,6 +299,9 @@ if __name__ == '__main__':
                     item_index = np.nonzero(true_score.asnumpy())
                     print("predict case / right case: {}".format((nd.sum(pred_score > 0.5) / total_num).asscalar()))
                     print((nd.sum(nd.abs(pred_score * coordinate_weight - true_score)) / total_num).asscalar())
+
+                print('Epoch %2d, %s %s %.5f, %s %.5f, %s %.5f time %.1f sec' % (
+                    epoch, mode, *cls_loss.get(), *obj_loss.get(), *box_loss.get(), time.time() - tic))
             nd.waitall()
             print('Epoch %2d, %s %s %.5f, %s %.5f, %s %.5f time %.1f sec' % (
                   epoch, mode, *cls_loss.get(), *obj_loss.get(), *box_loss.get(), time.time() - tic))
